@@ -1,0 +1,46 @@
+#!/bin/bash
+# ============================================================
+# HCHECK Configuration File (Example)
+# Скопируйте в hcheck.conf и заполните реальными значениями
+# chmod 600 hcheck.conf
+# ============================================================
+
+# === КАНАЛЫ И РЕЖИМ ===
+NOTIFY_CHANNELS="telegram"
+REPORT_MODE="silent_ok"
+
+# === EMAIL ===
+EMAIL_TO="admin@example.com"
+EMAIL_FROM="hcheck@yourdomain.com"
+EMAIL_SUBJECT_PREFIX="[hcheck]"
+EMAIL_METHOD="msmtp"
+EMAIL_SMTP_URL="smtps://smtp.gmail.com:465"
+EMAIL_SMTP_USER=""
+EMAIL_SMTP_PASS=""
+
+# === TELEGRAM ===
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_CHAT_ID=""
+TELEGRAM_PARSE_MODE="Markdown"
+
+# === WEBDAV ===
+WEBDAV_URL="https://your-webdav-server.com/reports/"
+WEBDAV_USER=""
+WEBDAV_PASS=""
+WEBDAV_FILENAME_PREFIX="hcheck_"
+WEBDAV_FILENAME_SUFFIX=".txt"
+
+# === SFTP ===
+SFTP_HOST="sftp.example.com"
+SFTP_PORT="22"
+SFTP_USER=""
+SFTP_PASS=""
+SFTP_KEY_FILE=""
+SFTP_REMOTE_PATH="/reports/hcheck/"
+SFTP_FILENAME_PREFIX="hcheck_"
+SFTP_FILENAME_SUFFIX=".txt"
+
+# === ОБЩИЕ НАСТРОЙКИ ===
+PLUGIN_TIMEOUT=15
+DETAILS_ONLY_FOR_ERRORS="true"
+CRITICAL_SERVICES="ssh"

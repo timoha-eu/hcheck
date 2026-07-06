@@ -1,0 +1,17 @@
+# Конфигурация с секретами
+config/hcheck.conf
+
+# Логи
+logs/
+
+# Временные файлы
+/tmp/hcheck_*
+
+# SSH-ключи
+*.pem
+*.key
+id_rsa*
+
+# Системные файлы
+.DS_Store
+Thumbs.db
