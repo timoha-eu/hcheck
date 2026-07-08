@@ -17,7 +17,7 @@ mkdir -p "${HCHECK_LOG_DIR}" 2>/dev/null
 [ "$(id -u)" -ne 0 ] && log_warning "Запущен не от root"
 
 HOSTNAME=$(hostname)
-TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+START_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
 PLUGIN_DIR="${HCHECK_BASE_DIR}/hcheck.d"
 PLUGIN_TIMEOUT="${PLUGIN_TIMEOUT:-15}"
 REPORT_MODE="${REPORT_MODE:-silent_ok}"
@@ -25,14 +25,9 @@ NOTIFY_CHANNELS="${NOTIFY_CHANNELS:-}"
 
 declare -a PLUGIN_NAMES=() PLUGIN_CODES=() PLUGIN_OUTPUTS=()
 
-log_info "=== [$TIMESTAMP] Запуск hcheck ==="
-log_info "Хост: $HOSTNAME | Режим: $REPORT_MODE | Каналы: ${NOTIFY_CHANNELS:-<нет>}"
-
 PLUGINS=()
 [ -d "$PLUGIN_DIR" ] && while IFS= read -r -d '' plugin; do PLUGINS+=("$plugin"); done < <(find "$PLUGIN_DIR" -maxdepth 1 -type f -executable -print0 | sort -z)
 [ ${#PLUGINS[@]} -eq 0 ] && { log_warning "Нет плагинов"; echo "Нет плагинов."; exit 0; }
-
-log_info "Плагинов: ${#PLUGINS[@]}"
 
 for plugin in "${PLUGINS[@]}"; do
     plugin_name=$(basename "$plugin")
@@ -49,8 +44,7 @@ for code in "${PLUGIN_CODES[@]}"; do [ "$code" -gt "$overall_code" ] && overall_
 overall_status=$(get_status_name "$overall_code")
 
 build_summary() {
-    local s="==========================================\n"
-    s+="=== HCHECK SUMMARY [${HOSTNAME}] ${TIMESTAMP} ===\n"
+    local s="=== ${START_TIMESTAMP} [${HOSTNAME}] HCHECK SUMMARY ===\n"
     for i in "${!PLUGIN_NAMES[@]}"; do
         local emoji=$(get_status_emoji "${PLUGIN_CODES[$i]}")
         case "${PLUGIN_CODES[$i]}" in
@@ -60,12 +54,11 @@ build_summary() {
             3) s+="${emoji}[UNKNOWN]   ${PLUGIN_NAMES[$i]}\n";;
         esac
     done
-    s+="=========================================="
     echo -e "$s"
 }
 
 build_details() {
-    local d="\n=== DETAILED REPORTS ===\n"; local only_errors="$1"
+    local d="\n\n=== DETAILED REPORTS ===\n"; local only_errors="$1"
     for i in "${!PLUGIN_NAMES[@]}"; do
         [ "$only_errors" = "true" ] && [ "${PLUGIN_CODES[$i]}" -eq 0 ] && continue
         d+="\n--- ${PLUGIN_NAMES[$i]} ---\n"
@@ -91,6 +84,8 @@ case "$REPORT_MODE" in
         [ "$overall_code" -eq 0 ] && { 
             log_info "Всё OK, молчим"
             echo -e "$summary_text" >> "${HCHECK_LOG_DIR}/hcheck_$(date +%Y%m%d).log"
+            END_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+            echo "=== [${END_TIMESTAMP}] Завершено ===" >> "${HCHECK_LOG_DIR}/hcheck_$(date +%Y%m%d).log"
             exit 0
         }
         report_text="${summary_text}$(build_details true)"
@@ -112,10 +107,12 @@ echo -e "$full_report_text" >> "${HCHECK_LOG_DIR}/hcheck_$(date +%Y%m%d).log"
 
 # Отправка уведомлений
 if [ "$NOTIFY_CHANNELS" != "log" ] && [ -n "$NOTIFY_CHANNELS" ]; then
-    log_info "[$TIMESTAMP] Отправка уведомлений..."
+    echo "" >> "${HCHECK_LOG_DIR}/hcheck_$(date +%Y%m%d).log"
+    echo "=== Отправка уведомлений ===" >> "${HCHECK_LOG_DIR}/hcheck_$(date +%Y%m%d).log"
     send_notifications "$report_text" "$full_report_text" "$NOTIFY_CHANNELS"
     [ $? -eq 0 ] && log_info "Уведомления OK" || log_error "Все каналы провалились"
 fi
 
-log_info "=== [$TIMESTAMP] Завершение (overall: $overall_status) ==="
+END_TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+echo "=== [${END_TIMESTAMP}] Завершено ===" >> "${HCHECK_LOG_DIR}/hcheck_$(date +%Y%m%d).log"
 exit $overall_code

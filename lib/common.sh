@@ -7,7 +7,6 @@ HCHECK_LOG_FILE="${HCHECK_LOG_DIR}/hcheck_$(date +%Y%m%d).log"
 log_msg() {
     local level="$1"; shift
     local msg="$*"
-    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     local emoji=""
     case "$level" in
         INFO)    emoji="";;
