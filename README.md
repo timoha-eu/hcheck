@@ -1,92 +1,153 @@
-# HCHECK - Система мониторинга состояния сервера
+# 🩺 HCHECK — Модульная система мониторинга сервера
 
-Легковесная, модульная система проверки состояния сервера на Ubuntu Linux.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Bash](https://img.shields.io/badge/Bash-4.0+-green.svg)](https://www.gnu.org/software/bash/)
+[![OS](https://img.shields.io/badge/OS-Ubuntu%2020.04%20|%2022.04%20|%2024.04-blue.svg)](https://ubuntu.com/)
 
-## Быстрый старт
+Легковесная, модульная система проверки состояния Linux-серверов, написанная на чистом Bash. Состоит из главного скрипта-оркестратора и набора независимых плагинов. Результаты агрегируются в структурированный отчёт с emoji-индикацией и доставляются администратору через настроенные каналы связи.
 
-1. Клонируем репозиторий:
-   sudo git clone <repo_url> /opt/hcheck
+---
 
-2. Копируем шаблон конфига:
-   sudo cp /opt/hcheck/config/hcheck.conf.example /opt/hcheck/config/hcheck.conf
-   sudo chmod 600 /opt/hcheck/config/hcheck.conf
+## ✨ Особенности
 
-3. Редактируем конфиг (задаём каналы уведомлений):
-   sudo nano /opt/hcheck/config/hcheck.conf
+- 🧩 **Модульная архитектура**: новые проверки добавляются простым копированием скрипта в папку `hcheck.d/`.
+- ⏱️ **Защита от зависаний**: каждый плагин выполняется с жёстким таймаутом (по умолчанию 15 сек).
+- 🎨 **Читаемые отчёты**: автоматическая замена текстовых тегов (`[OK]`, `[CRIT]`) на emoji (🟢, 🔴) для удобного чтения в мессенджерах.
+- 🔕 **Режим `silent_ok`**: система молчит, если все проверки прошли успешно, и присылает отчёт только при возникновении проблем.
+- 📡 **Гибкая доставка**: поддержка Telegram, Email (через `msmtp` или `curl`), WebDAV и SFTP.
+- 🛡️ **Безопасность**: конфигурационный файл с паролями и токенами исключён из Git (`.gitignore`).
 
-4. Тестируем:
-   sudo /opt/hcheck/hcheck.sh
+---
 
-5. Настраиваем cron:
-   sudo tee /etc/cron.d/hcheck > /dev/null <<'EOF'
-   # Запуск каждый час
-   0 * * * * root /opt/hcheck/hcheck.sh > /dev/null 2>&1
-   EOF
+## 📂 Структура проекта
 
-## Структура проекта
-
+```text
 /opt/hcheck/
-  hcheck.sh               - Главный скрипт-оркестратор
-  hcheck.d/               - Скрипты проверок (плагины)
-    10_disk_space.sh      - Проверка дисков
-    20_load_average.sh    - Проверка Load Average
-    30_memory_usage.sh    - Проверка памяти
-    40_service_status.sh  - Проверка сервисов
-  config/
-    hcheck.conf           - Конфиг (НЕ в Git!)
-    hcheck.conf.example   - Шаблон конфига
-  lib/
-    common.sh             - Библиотека функций
-  logs/                   - Логи (НЕ в Git)
-  README.md
+├── .gitignore                 # Исключение конфигов и логов из VCS
+├── README.md                  # Этот файл
+├── hcheck.sh                  # Главный скрипт-оркестратор
+├── config/
+│   ├── hcheck.conf            # Активная конфигурация (НЕ в Git!)
+│   └── hcheck.conf.example    # Шаблон конфигурации
+├── hcheck.d/                  # Директория с плагинами
+│   ├── 10_system.sh           # Проверка диска, uptime, входов
+│   ├── 20_services.sh         # Мониторинг systemd-сервисов
+│   └── 30_fail2ban.sh         # Статистика Fail2ban (failed/banned)
+├── lib/
+│   └── common.sh              # Библиотека логирования и отправки уведомлений
+├── ext/                       # Утилиты развёртывания
+│   ├── deploy.sh              # Скрипт установки cron-задачи
+│   └── hcheck.cron.example    # Шаблон расписания cron
+└── logs/                      # Ежедневные логи выполнения (hcheck_YYYYMMDD.log)
+```
 
-## Режимы отчётности
+---
 
-Задаются переменной REPORT_MODE в config/hcheck.conf:
+## 🚀 Быстрый старт
 
-- silent_ok    : Молчать если всё ОК, иначе слать полный отчёт
-- summary_only : Всегда слать только список статусов (exit codes)
-- full         : Всегда слать сводку + полные детали всех проверок
+### 1. Установка
+```bash
+# Клонируем репозиторий
+sudo git clone <URL_ВАШЕГО_РЕПОЗИТОРИЯ> /opt/hcheck
+cd /opt/hcheck
 
-## Каналы уведомлений
+# Создаём конфигурацию из шаблона
+sudo cp config/hcheck.conf.example config/hcheck.conf
+sudo chmod 600 config/hcheck.conf
+```
 
-Задаются переменной NOTIFY_CHANNELS через запятую: email, telegram, webdav, sftp.
+### 2. Настройка
+Отредактируйте файл `config/hcheck.conf`, указав необходимые каналы уведомлений и параметры:
+```bash
+sudo nano config/hcheck.conf
+```
+*(Минимально необходимо настроить `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID` или `EMAIL_TO`)*
 
-### Telegram
+### 3. Развёртывание и тест
+```bash
+# Устанавливаем задачу в cron (ежедневно в 02:00)
+sudo bash ext/deploy.sh
 
-1. Создайте бота через @BotFather -> получите токен.
-2. Получите Chat ID.
-3. Заполните в конфиге:
-   TELEGRAM_BOT_TOKEN="123456:ABC-DEF..."
-   TELEGRAM_CHAT_ID="-100123456789"
+# Выполняем ручную проверку
+sudo ./hcheck.sh
+```
 
-### Email (через msmtp)
+---
 
-sudo apt install msmtp msmtp-mta
-sudo nano /etc/msmtprc
+## ⚙️ Конфигурация
 
-### WebDAV
+Основные параметры в `config/hcheck.conf`:
 
-  WEBDAV_URL="https://your-webdav-server.com/reports/"
-  WEBDAV_USER="your-username"
-  WEBDAV_PASS="your-password"
+| Переменная | По умолчанию | Описание |
+|------------|--------------|----------|
+| `PLUGIN_TIMEOUT` | `15` | Максимальное время выполнения одного плагина (сек) |
+| `REPORT_MODE` | `silent_ok` | `silent_ok` (молчать при успехе), `summary_only` (только сводка), `full` (всегда полный отчёт) |
+| `NOTIFY_CHANNELS` | *(пусто)* | Каналы через запятую: `telegram,email,webdav,sftp` |
+| `HCHECK_LOG_DIR` | `${HCHECK_BASE_DIR}/logs` | Путь для сохранения ежедневных логов |
 
-### SFTP
+---
 
-  SFTP_HOST="sftp.example.com"
-  SFTP_PORT="22"
-  SFTP_USER="your-username"
-  SFTP_PASS="your-password"
+## 📦 Реализованные модули
 
-## Добавление своей проверки
+1. **`10_system.sh`**: Проверяет свободное место на диске и inodes (пороги WARN ≤15%, CRIT <10%), время работы системы (uptime) и время последнего успешного входа пользователя.
+2. **`20_services.sh`**: Проверяет статус заданных systemd-сервисов. Если сервис неактивен, пытается перезапустить его (`systemctl reset-failed` && `start`).
+3. **`30_fail2ban.sh`**: Опрос `fail2ban-client` для получения сводки по всем активным jail: количество текущих и общих блокировок (banned) и неудачных попыток (failed).
 
-Создайте файл в hcheck.d/ с именем NN_имя.sh.
-Правила:
-- Имя: NN_имя.sh (NN - числовой префикс для порядка)
-- Исполняемый: chmod +x
-- Теги вывода: [INFO], [OK], [WARN], [CRIT]
-- Exit codes: 0=OK, 1=WARNING, 2=CRITICAL, 3=UNKNOWN
+---
 
-## Лицензия
+## 📡 Настройка каналов уведомлений
 
-MIT
+### Telegram (Рекомендуется)
+1. Создайте бота через [@BotFather](https://t.me/BotFather), получите `TELEGRAM_BOT_TOKEN`.
+2. Добавьте бота в чат/группу или начните с ним диалог.
+3. Узнайте `TELEGRAM_CHAT_ID` через [@userinfobot](https://t.me/userinfobot) или [@getidsbot](https://t.me/getidsbot).
+4. Укажите их в конфиге и добавьте `telegram` в `NOTIFY_CHANNELS`.
+
+### Email
+Поддерживает два метода (`EMAIL_METHOD`):
+- **`msmtp`** (по умолчанию): Требует установленный и настроенный пакет `msmtp`.
+- **`curl`**: Позволяет отправлять почту напрямую через SMTP, указав `EMAIL_SMTP_URL`, `EMAIL_SMTP_USER` и `EMAIL_SMTP_PASS`.
+
+### WebDAV / SFTP
+Используются для сохранения полных текстовых отчётов (`full_report`) в облачные хранилища (Nextcloud, Yandex Disk) или на резервные сервера. Требуют соответствующих переменных в конфиге (`WEBDAV_URL`, `SFTP_HOST` и т.д.).
+
+---
+
+## 🛠️ Создание собственного модуля
+
+Чтобы добавить новую проверку, создайте исполняемый bash-скрипт в папке `hcheck.d/` с префиксом (например, `40_custom.sh`).
+
+**Требования к скрипту:**
+1. Должен быть исполняемым: `chmod +x hcheck.d/40_custom.sh`.
+2. Должен выводить строки с тегами: `[INFO]`, `[OK]`, `[WARN]` (или `[WARNING]`), `[CRIT]` (или `[CRITICAL]`).
+3. Должен завершаться с соответствующим кодом возврата (exit code):
+   - `0` — OK (всё в норме)
+   - `1` — WARNING (требует внимания)
+   - `2` — CRITICAL (критическая ошибка)
+   - `3` — UNKNOWN (ошибка выполнения скрипта, также присваивается оркестратором при таймауте)
+
+**Пример шаблона:**
+```bash
+#!/bin/bash
+source "${HCHECK_BASE_DIR}/lib/common.sh"
+
+echo "[INFO] Начало проверки Custom"
+
+# Ваша логика здесь
+if [ condition_ok ]; then
+    echo "[OK] Параметр в норме"
+    exit 0
+elif [ condition_warn ]; then
+    echo "[WARN] Параметр требует внимания"
+    exit 1
+else
+    echo "[CRIT] Критическая ошибка параметра"
+    exit 2
+fi
+```
+
+---
+
+## 📝 Логи
+
+Все запуски логируются в файл `logs/hcheck_YYYYMMDD.log`. Формат записи включает временную метку, имя хоста, сводку по плагинам и статус отправки уведомлений.
