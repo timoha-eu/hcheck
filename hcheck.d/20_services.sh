@@ -5,7 +5,7 @@
 # Для добавления сервиса: допишите его имя через пробел
 # Для удаления сервиса: уберите его имя из списка
 # ============================================================
-SERVICES="ssh apache2 fail2ban mysql"
+SERVICES="ssh apache2 fail2ban mysql awg-quick@awg0"
 # ============================================================
 
 echo "[INFO] Проверка статуса сервисов"
@@ -34,18 +34,23 @@ worst_code=0
 NOW_EPOCH=$(date +%s)
 
 for service in $SERVICES; do
-    # Проверяем существование юнита в системе
-    if ! systemctl list-unit-files "${service}.service" 2>/dev/null | grep -q "${service}.service"; then
+    # Нормализуем имя юнита (добавляем .service, если расширение не указано)
+    unit_name="${service}"
+    [[ "$unit_name" != *.service && "$unit_name" != *.socket && "$unit_name" != *.timer ]] && unit_name="${unit_name}.service"
+
+    # Проверяем существование юнита через LoadState (надёжно работает с шаблонными юнитами типа awg-quick@awg0)
+    load_state=$(systemctl show "$unit_name" --property=LoadState 2>/dev/null | cut -d= -f2)
+    if [ "$load_state" = "not-found" ]; then
         echo "[CRIT] Сервис '${service}' не найден в системе"
         [ 2 -gt "$worst_code" ] && worst_code=2
         continue
     fi
 
-    status=$(systemctl is-active "$service" 2>/dev/null)
+    status=$(systemctl is-active "$unit_name" 2>/dev/null)
 
     if [ "$status" = "active" ]; then
         # Сервис активен — получаем timestamp запуска
-        active_enter=$(systemctl show "$service" --property=ActiveEnterTimestamp 2>/dev/null | cut -d= -f2)
+        active_enter=$(systemctl show "$unit_name" --property=ActiveEnterTimestamp 2>/dev/null | cut -d= -f2)
 
         # Определяем цвет таймстампа по времени с момента запуска
         ts_output=""
@@ -72,10 +77,10 @@ for service in $SERVICES; do
         fi
     else
         # Сервис не активен — сбрасываем failed-состояние и пробуем запустить
-        systemctl reset-failed "$service" &>/dev/null
-        systemctl start "$service" &>/dev/null
+        systemctl reset-failed "$unit_name" &>/dev/null
+        systemctl start "$unit_name" &>/dev/null
         sleep 1
-        new_status=$(systemctl is-active "$service" 2>/dev/null)
+        new_status=$(systemctl is-active "$unit_name" 2>/dev/null)
 
         if [ "$new_status" = "active" ]; then
             echo "[WARN] ${service}: запущен (был: ${status})"
