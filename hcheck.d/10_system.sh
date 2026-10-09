@@ -1,7 +1,16 @@
 #!/bin/bash
-# Плагин: Проверка системных параметров (диск, uptime, последний вход)
+# Плагин: Проверка системных параметров (IP, диск, uptime, последний вход)
 
 echo "Проверка системных параметров"
+
+# ============================================
+# НАСТРОЙКИ
+# ============================================
+# Режим 1: Контроль IP. Укажите референсный IP в hcheck.conf (REF_IP).
+# Режим 2: Без контроля. Оставьте переменную пустой или не задавайте её.
+CONFIG_FILE="${HCHECK_BASE_DIR:-/opt/hcheck}/config/hcheck.conf"
+[ -f "$CONFIG_FILE" ] && source "$CONFIG_FILE"
+REF_IP="${REF_IP:-}"
 
 # Пороги для дискового пространства
 DISK_WARN_THRESHOLD=15  # <=15% свободного - WARNING
@@ -10,13 +19,31 @@ DISK_CRIT_THRESHOLD=10  # <10% свободного - CRITICAL
 worst_code=0
 
 # ============================================
-# 1. ПРОВЕРКА ДИСКОВОГО ПРОСТРАНСТВА
+# 1. ПРОВЕРКА ВНЕШНЕГО IP
 # ============================================
-echo ""
-echo "=== Дисковое пространство ==="
+CURRENT_IP=$(curl -s --connect-timeout 5 https://ifconfig.me/ip)
 
+if [ -z "$CURRENT_IP" ]; then
+    echo "[WARN] Не удалось определить внешний IP (проверьте сеть или curl)"
+    [ 1 -gt "$worst_code" ] && worst_code=1
+elif [ -z "$REF_IP" ]; then
+    # Режим без контроля
+    echo "[OK] $CURRENT_IP"
+elif [ "$CURRENT_IP" = "$REF_IP" ]; then
+    # Режим контроля: совпадение
+    echo "[OK] $CURRENT_IP"
+else
+    # Режим контроля: несовпадение
+    echo "[CRIT] $CURRENT_IP (ref $REF_IP)"
+    [ 2 -gt "$worst_code" ] && worst_code=2
+fi
+
+echo ""
+
+# ============================================
+# 2. ПРОВЕРКА ДИСКОВОГО ПРОСТРАНСТВА
+# ============================================
 while IFS= read -r line; do
-    # Пропускаем заголовок
     echo "$line" | grep -q "^Filesystem" && continue
     
     filesystem=$(echo "$line" | awk '{print $1}')
@@ -26,15 +53,12 @@ while IFS= read -r line; do
     use_pct=$(echo "$line" | awk '{print $5}' | tr -d '%')
     mount=$(echo "$line" | awk '{print $6}')
     
-    # Пропускаем виртуальные файловые системы
     case "$filesystem" in 
         tmpfs|devtmpfs|none|udev|shm|overlay) continue;; 
     esac
     
-    # Вычисляем процент свободного места
     free_pct=$((100 - use_pct))
     
-    # Проверяем пороги
     if [ "$free_pct" -lt "$DISK_CRIT_THRESHOLD" ]; then
         echo "[CRIT] ${mount}: total ${size}, used ${used}, free ${avail} (${free_pct}% free)"
         [ 2 -gt "$worst_code" ] && worst_code=2
@@ -71,16 +95,14 @@ while IFS= read -r line; do
     fi
 done < <(df -i 2>/dev/null)
 
-# ============================================
-# 2. ПРОВЕРКА UPTIME СИСТЕМЫ
-# ============================================
 echo ""
 
-# Получаем uptime в секундах
+# ============================================
+# 3. ПРОВЕРКА UPTIME СИСТЕМЫ
+# ============================================
 if [ -f /proc/uptime ]; then
     uptime_seconds=$(awk '{print int($1)}' /proc/uptime)
 else
-    # Fallback: парсим вывод uptime
     uptime_output=$(uptime 2>/dev/null)
     if echo "$uptime_output" | grep -q "day"; then
         days=$(echo "$uptime_output" | grep -oP '\d+ day' | awk '{print $1}')
@@ -95,7 +117,6 @@ else
     fi
 fi
 
-# Вычисляем дни, часы, минуты
 uptime_days=$((uptime_seconds / 86400))
 uptime_hours=$(( (uptime_seconds % 86400) / 3600 ))
 uptime_minutes=$(( (uptime_seconds % 3600) / 60 ))
@@ -109,37 +130,32 @@ else
     echo "[OK]   Uptime: ${uptime_human}"
 fi
 
-# ============================================
-# 3. ПРОВЕРКА ПОСЛЕДНЕГО ВХОДА В СИСТЕМУ
-# ============================================
 echo ""
 
-# Получаем информацию о последнем входе
+# ============================================
+# 4. ПРОВЕРКА ПОСЛЕДНЕГО ВХОДА В СИСТЕМУ
+# ============================================
+
 last_output=$(last -n 10 2>/dev/null | grep -v "^$" | grep -v "^wtmp" | grep -v "reboot")
+login_is_ok=0 # Флаг: 0 = не OK (нужен вывод истории), 1 = OK (историю не выводим)
 
 if [ -z "$last_output" ]; then
     echo "[WARN] Не удалось получить данные о входах в систему"
     [ 1 -gt "$worst_code" ] && worst_code=1
 else
-    # Берем первый (самый свежий) вход
     last_entry=$(echo "$last_output" | head -n 1)
     
-    # Парсим данные
     last_user=$(echo "$last_entry" | awk '{print $1}')
     last_terminal=$(echo "$last_entry" | awk '{print $2}')
     last_host=$(echo "$last_entry" | awk '{print $3}')
     
-    # Извлекаем дату и время входа (поля 4-6: день недели, месяц, день)
-    # Формат: user pts/0 host Mon Jul  6 13:56 still logged in
     day_of_week=$(echo "$last_entry" | awk '{print $4}')
     month=$(echo "$last_entry" | awk '{print $5}')
     day=$(echo "$last_entry" | awk '{print $6}')
     time=$(echo "$last_entry" | awk '{print $7}')
     
-    # Формируем строку даты без "still logged in"
     last_date_str="${day_of_week} ${month} ${day} ${time}"
     
-    # Пытаемся распарсить дату
     if command -v date &>/dev/null; then
         last_timestamp=$(date -d "$last_date_str" +%s 2>/dev/null)
         
@@ -156,6 +172,7 @@ else
                 [ 1 -gt "$worst_code" ] && worst_code=1
             else
                 echo "[OK]   Последний вход: ${last_user} с ${last_host} на ${last_terminal} (${last_human})"
+                login_is_ok=1 # Вход был давно, всё ОК
             fi
         else
             echo "[WARN] Не удалось распарсить дату последнего входа: $last_date_str"
@@ -166,31 +183,28 @@ else
         [ 1 -gt "$worst_code" ] && worst_code=1
     fi
     
-    # Показываем последние входы за последние 24 часа
-    echo "Последние входы за сутки:"
-    
-    # Получаем текущее время минус 24 часа
-    current_timestamp=$(date +%s)
-    yesterday_timestamp=$((current_timestamp - 86400))
-    
-    # Обрабатываем каждую запись
-    echo "$last_output" | while read -r entry; do
-        [ -z "$entry" ] && continue
+    # Выводим историю ТОЛЬКО если последний вход НЕ Ок (login_is_ok == 0)
+    if [ "$login_is_ok" -eq 0 ]; then
+        echo "Последние входы за сутки:"
+        current_timestamp=$(date +%s)
+        yesterday_timestamp=$((current_timestamp - 86400))
         
-        # Парсим дату из записи
-        entry_day_of_week=$(echo "$entry" | awk '{print $4}')
-        entry_month=$(echo "$entry" | awk '{print $5}')
-        entry_day=$(echo "$entry" | awk '{print $6}')
-        entry_time=$(echo "$entry" | awk '{print $7}')
-        
-        entry_date_str="${entry_day_of_week} ${entry_month} ${entry_day} ${entry_time}"
-        entry_timestamp=$(date -d "$entry_date_str" +%s 2>/dev/null)
-        
-        # Проверяем, была ли запись в последние 24 часа
-        if [ -n "$entry_timestamp" ] && [ "$entry_timestamp" -ge "$yesterday_timestamp" ]; then
-            echo "  $entry"
-        fi
-    done
+        echo "$last_output" | while read -r entry; do
+            [ -z "$entry" ] && continue
+            
+            entry_day_of_week=$(echo "$entry" | awk '{print $4}')
+            entry_month=$(echo "$entry" | awk '{print $5}')
+            entry_day=$(echo "$entry" | awk '{print $6}')
+            entry_time=$(echo "$entry" | awk '{print $7}')
+            
+            entry_date_str="${entry_day_of_week} ${entry_month} ${entry_day} ${entry_time}"
+            entry_timestamp=$(date -d "$entry_date_str" +%s 2>/dev/null)
+            
+            if [ -n "$entry_timestamp" ] && [ "$entry_timestamp" -ge "$yesterday_timestamp" ]; then
+                echo "  $entry"
+            fi
+        done
+    fi
 fi
 
 exit $worst_code
