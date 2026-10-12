@@ -48,47 +48,53 @@ for service in $SERVICES; do
 
     status=$(systemctl is-active "$unit_name" 2>/dev/null)
 
+    if [ "$status" != "active" ]; then
+        # Сервис не активен — сбрасываем failed-состояние и пробуем запустить
+        systemctl reset-failed "$unit_name" &>/dev/null
+        systemctl start "$unit_name" &>/dev/null
+        sleep 1
+        status=$(systemctl is-active "$unit_name" 2>/dev/null)
+    fi
+
     if [ "$status" = "active" ]; then
         # Сервис активен — получаем timestamp запуска
         active_enter=$(systemctl show "$unit_name" --property=ActiveEnterTimestamp 2>/dev/null | cut -d= -f2)
 
-        # Определяем цвет таймстампа по времени с момента запуска
+        # Вычисляем время активности в формате Xd Yh Zm и определяем цвет по нему
         ts_output=""
+        diff_seconds=""
         if [ -n "$active_enter" ] && [ "$active_enter" != "n/a" ]; then
             enter_epoch=$(date -d "$active_enter" +%s 2>/dev/null)
             if [ -n "$enter_epoch" ]; then
                 diff_seconds=$((NOW_EPOCH - enter_epoch))
+                active_days=$((diff_seconds / 86400))
+                active_hours=$(( (diff_seconds % 86400) / 3600 ))
+                active_minutes=$(( (diff_seconds % 3600) / 60 ))
+                active_human="${active_days}d ${active_hours}h ${active_minutes}m"
                 if [ "$diff_seconds" -lt 86400 ]; then
                     # Менее 1 дня — жёлтый
-                    ts_output="${C_YELLOW}${active_enter}${C_RESET}"
+                    ts_output="${C_YELLOW}${active_human}${C_RESET}"
                 else
                     # Более 1 дня — зелёный
-                    ts_output="${C_GREEN}${active_enter}${C_RESET}"
+                    ts_output="${C_GREEN}${active_human}${C_RESET}"
                 fi
             else
                 ts_output="$active_enter"
             fi
         fi
 
-        if [ -n "$ts_output" ]; then
-            echo "[OK]   ${service}: active (since: ${ts_output})"
+        if [ -n "$diff_seconds" ] && [ "$diff_seconds" -lt 86400 ]; then
+            # Сервис активен менее 1 дня (в т.ч. только что перезапущен) — WARN
+            echo "[WARN] ${service}: active (uptime: ${ts_output})"
+            [ 1 -gt "$worst_code" ] && worst_code=1
+        elif [ -n "$ts_output" ]; then
+            echo "[OK]   ${service}: active (uptime: ${ts_output})"
         else
             echo "[OK]   ${service}: active"
         fi
     else
-        # Сервис не активен — сбрасываем failed-состояние и пробуем запустить
-        systemctl reset-failed "$unit_name" &>/dev/null
-        systemctl start "$unit_name" &>/dev/null
-        sleep 1
-        new_status=$(systemctl is-active "$unit_name" 2>/dev/null)
-
-        if [ "$new_status" = "active" ]; then
-            echo "[WARN] ${service}: запущен (был: ${status})"
-            [ 1 -gt "$worst_code" ] && worst_code=1
-        else
-            echo "[CRIT] ${service}: не удалось запустить (status: ${new_status})"
-            [ 2 -gt "$worst_code" ] && worst_code=2
-        fi
+        echo "[CRIT] ${service}: не удалось запустить (status: ${status})"
+        [ 2 -gt "$worst_code" ] && worst_code=2
     fi
 done
 
