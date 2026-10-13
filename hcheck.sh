@@ -27,6 +27,22 @@ declare -a PLUGIN_NAMES=() PLUGIN_CODES=() PLUGIN_OUTPUTS=()
 
 PLUGINS=()
 [ -d "$PLUGIN_DIR" ] && while IFS= read -r -d '' plugin; do PLUGINS+=("$plugin"); done < <(find "$PLUGIN_DIR" -maxdepth 1 -type f -executable -print0 | sort -z)
+
+if [ -n "$DISABLED_MODULES" ]; then
+    ENABLED_PLUGINS=()
+    for plugin in "${PLUGINS[@]}"; do
+        plugin_name=$(basename "$plugin")
+        skip=false
+        for disabled in $DISABLED_MODULES; do [ "$plugin_name" = "$disabled" ] && skip=true; done
+        if [ "$skip" = true ]; then
+            log_info "${plugin_name}: отключён (DISABLED_MODULES)"
+        else
+            ENABLED_PLUGINS+=("$plugin")
+        fi
+    done
+    PLUGINS=("${ENABLED_PLUGINS[@]}")
+fi
+
 [ ${#PLUGINS[@]} -eq 0 ] && { log_warning "Нет плагинов"; echo "Нет плагинов."; exit 0; }
 
 for plugin in "${PLUGINS[@]}"; do
